@@ -199,5 +199,3 @@ pip install playwright==1.51.0
 playwright install chromium
 python scripts/capture.py
 ```
-
-最後確認 `screenshots/` 中兩張圖可讀、MLflow 顯示 run 及 accuracy、HPA 顯示至少兩個 ready replicas，並將 Repository 連結交作業。
