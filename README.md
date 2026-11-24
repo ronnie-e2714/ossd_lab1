@@ -1,14 +1,12 @@
 # Lab 1 — Your First Model Service on Kubernetes
 
-依據 MLOps Foundations & Cloud Native AI 講義實際投影片第 49–52 頁實作。
-
 Repository：https://github.com/ronnie-e2714/ossd_lab1
 
-## 作業目標與實作內容
+## 專案目標與實作內容
 
-本作業依講義的五個步驟，將 Iris 分類模型從本機訓練轉為可在 Kubernetes 執行的 HTTP 服務，並以實際負載驗證自動擴展。繳交內容包括完整 source code、Kubernetes YAML，以及 MLflow Run 和 HPA Scaling 執行截圖。
+本專案將 Iris 分類模型從本機訓練轉為可在 Kubernetes 執行的 HTTP 服務，並以實際負載驗證自動擴展。
 
-| 講義步驟 | 本專案實作 | 驗證方式 |
+| 執行步驟 | 本專案實作 | 驗證方式 |
 | --- | --- | --- |
 | 1. 建立本機 Kubernetes cluster | 使用 kind 建立 `mlops` 叢集，安裝 metrics-server 提供 CPU 指標；自動驗證時叢集建立於 GitHub runner | 等待 metrics-server 與模型 Deployment rollout 完成 |
 | 2. 訓練並追蹤模型 | 使用 scikit-learn 內建 Iris 資料集，訓練 100 棵樹的 RandomForestClassifier；以 MLflow 記錄參數、accuracy、模型與輸入輸出 signature | MLflow Run 顯示 Finished、參數、accuracy 與 logged model |
@@ -42,7 +40,7 @@ flowchart TD
     N --> O
 ```
 
-模型只在訓練步驟產生，推論容器不重新訓練；MLflow 負責實驗紀錄，FastAPI 負責載入已訓練模型並處理預測。HPA 依 metrics-server 的 CPU 指標調整 Deployment 副本數。本作業的 port-forward 會選取單一 Pod，適合展示負載引發擴展，不作為多副本負載平衡的驗證。
+模型只在訓練步驟產生，推論容器不重新訓練；MLflow 負責實驗紀錄，FastAPI 負責載入已訓練模型並處理預測。HPA 依 metrics-server 的 CPU 指標調整 Deployment 副本數。本專案的 port-forward 會選取單一 Pod，適合展示負載引發擴展，不作為多副本負載平衡的驗證。
 
 ## 各檔案用途
 
@@ -67,11 +65,11 @@ flowchart TD
 | [screenshots/hpa-scaling.png](screenshots/hpa-scaling.png) | 實際 kubectl 輸出的瀏覽器截圖，顯示 HPA、Pod 狀態與自動擴展事件。 |
 | [screenshots/README.md](screenshots/README.md) | 說明兩張截圖的來源、內容與成功執行連結。 |
 | [evidence/training.json](evidence/training.json) | 訓練 Run ID、accuracy、模型參數、訓練及測試資料筆數。 |
-| [evidence/hey.txt](evidence/hey.txt) | 講義指定的 hey 負載測試原始輸出（60 秒、50 並行）。 |
+| [evidence/hey.txt](evidence/hey.txt) | `hey` 負載測試原始輸出（60 秒、50 並行）。 |
 | [evidence/load.json](evidence/load.json) | 負載測試成功與錯誤請求總數。 |
 | [evidence/hpa-history.json](evidence/hpa-history.json) | 帶時間戳記的 HPA 與 Deployment 狀態觀測序列。 |
 | [evidence/hpa.txt](evidence/hpa.txt) | `kubectl get hpa`、`get pods`、`describe hpa` 的原始查詢輸出。 |
-| [README.md](README.md) | 作業要求對照、實作內容、流程、檔案說明、重現步驟及驗證結果。 |
+| [README.md](README.md) | 實作內容、流程、檔案說明、重現步驟及驗證結果。 |
 
 `model.pkl`、`mlflow.db` 與 MLflow artifact 目錄是執行時產物，不納入 Git。先執行 `python train.py` 才能建立含模型的 Docker 映像；MLflow UI 與截圖程式需在同一專案工作目錄使用該次訓練的資料庫。
 
@@ -88,13 +86,13 @@ flowchart TD
 | 5. Deploy | 呼叫 `scripts/deploy.sh`，建立 Kubernetes 1.32.2 叢集、metrics-server、映像與應用資源 | metrics-server 與 iris-api rollout 成功 |
 | 6. Load test and capture real evidence | 背景啟動 MLflow UI 和 port-forward，等待健康檢查，發送 curl 請求，先跑 hey 60 秒／50 並行負載，確認全為 HTTP 200 且無連線錯誤後，再啟動 300 秒 Python 負載與截圖程式 | 健康檢查逾時即失敗；驗證 HPA 擴展、產生兩張 PNG 和紀錄，等待 Python 負載完成並確認零錯誤 |
 | 7. Print runtime diagnostics / Save artifacts for diagnosis | 以 `if: always()` 印出負載／HPA／Pod 診斷，收集 `screenshots/`、`evidence/` | 上傳 `lab1-evidence` artifact；失敗執行的產物僅供診斷 |
-| 8. Commit verified evidence | 前置步驟成功才執行 `git add`、commit 和 push | 截圖與紀錄寫回 Repository，供作業檢閱 |
+| 8. Commit verified evidence | 前置步驟成功才執行 `git add`、commit 和 push | 截圖與紀錄寫回 Repository |
 
 Workflow 使用 `contents: write` 權限寫入證據，提交訊息包含 `[skip ci]`，避免證據提交再啟動同一流程。每次開始先清除舊證據，避免失敗執行的 artifact 混入上次結果。任一測試、訓練、部署或擴展驗證失敗，都不會執行最後的成功證據提交；可由 Actions 日誌與 artifact 查明原因。GitHub runner 上的叢集是該次驗證使用的暫時環境，工作結束後不提供常駐預測服務。
 
-## 繳交內容與驗證狀態
+## 實測結果與執行截圖
 
-| 要求 | 檔案 |
+| 項目 | 檔案 |
 | --- | --- |
 | scikit-learn 訓練、MLflow params / metrics / model | `train.py` |
 | FastAPI 預測與健康檢查 | `app.py` |
@@ -162,7 +160,7 @@ bash scripts/deploy.sh
 kubectl port-forward svc/iris-api 8080:80
 ```
 
-腳本建立獨立 `mlops` kind 叢集並切換到 `kind-mlops` context，安裝 metrics-server v0.7.2，建置及載入 `iris-api:v1`，套用 Deployment、Service 與 HPA。重跑時若叢集已存在，跳過建立步驟，手動執行後續命令；不要對其他叢集套用作業檔。
+腳本建立獨立 `mlops` kind 叢集並切換到 `kind-mlops` context，安裝 metrics-server v0.7.2，建置及載入 `iris-api:v1`，套用 Deployment、Service 與 HPA。重跑時若叢集已存在，跳過建立步驟，手動執行後續命令；不要對其他叢集套用這些設定。
 
 kind 的本機 kubelet 憑證需在 metrics-server 加入 `--kubelet-insecure-tls`；此設定僅用於本機 lab。CPU request 為 100m，HPA 50% 是相對於 request 計算，約為每 Pod 50m，不是整台主機 CPU 的 50%。資源與自動擴展機制參考 [Kubernetes HPA 文件](https://kubernetes.io/docs/concepts/workloads/autoscaling/horizontal-pod-autoscale/) 與 [metrics-server 文件](https://github.com/kubernetes-sigs/metrics-server)。
 
@@ -180,13 +178,13 @@ kubectl describe hpa iris-api
 kubectl top pods
 ```
 
-也可使用講義的 hey：
+也可使用 `hey`：
 
 ```bash
 hey -z 180s -c 50 -m POST -T application/json -d '{"instances":[[5.1,3.5,1.4,0.2]]}' http://localhost:8080/predict
 ```
 
-`port-forward` 會綁定一個 Pod，足以觸發作業的 HPA 示範，但不等於驗證 Service 的負載平衡。短時間負載未必達到 5 replicas；至少觀察從 1 擴為 2 以上。停止負載後，預設縮容穩定視窗約 5 分鐘。CPU 顯示 `<unknown>` 時先檢查 metrics-server rollout、`kubectl top pods` 及 HPA conditions。
+`port-forward` 會綁定一個 Pod，可用來觸發 HPA 擴展，但不等於驗證 Service 的負載平衡。短時間負載未必達到 5 replicas；至少觀察從 1 擴為 2 以上。停止負載後，預設縮容穩定視窗約 5 分鐘。CPU 顯示 `<unknown>` 時先檢查 metrics-server rollout、`kubectl top pods` 及 HPA conditions。
 
 ## 自動產生及上傳截圖
 
