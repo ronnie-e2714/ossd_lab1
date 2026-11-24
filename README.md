@@ -4,6 +4,92 @@
 
 Repository：https://github.com/ronnie-e2714/ossd_lab1
 
+## 作業目標與實作內容
+
+本作業依講義的五個步驟，將 Iris 分類模型從本機訓練轉為可在 Kubernetes 執行的 HTTP 服務，並以實際負載驗證自動擴展。繳交內容包括完整 source code、Kubernetes YAML，以及 MLflow Run 和 HPA Scaling 執行截圖。
+
+| 講義步驟 | 本專案實作 | 驗證方式 |
+| --- | --- | --- |
+| 1. 建立本機 Kubernetes cluster | 使用 kind 建立 `mlops` 叢集，安裝 metrics-server 提供 CPU 指標；自動驗證時叢集建立於 GitHub runner | 等待 metrics-server 與模型 Deployment rollout 完成 |
+| 2. 訓練並追蹤模型 | 使用 scikit-learn 內建 Iris 資料集，訓練 100 棵樹的 RandomForestClassifier；以 MLflow 記錄參數、accuracy、模型與輸入輸出 signature | MLflow Run 顯示 Finished、參數、accuracy 與 logged model |
+| 3. 包裝模型服務與映像 | FastAPI 啟動時載入 `model.pkl`，提供 `/predict` 和 `/healthz`；以 Python 3.12 建置 `iris-api:v1` 並載入 kind | API 測試、Docker build 與 HTTP 預測請求 |
+| 4. 部署 Deployment + Service | Deployment 初始 1 個副本；ClusterIP Service 將 80 port 導向容器 8080；設定 readiness / liveness probes | rollout 成功，透過 port-forward 呼叫預測服務 |
+| 5. 設定資源與 HPA 並產生負載 | CPU request 100m、limit 500m，memory request 128Mi、limit 256Mi；HPA CPU 目標 50%，副本範圍 1–5 | 50 並行、300 秒的真實預測負載，記錄 HPA 指標、Pod 狀態與擴展事件 |
+
+訓練使用固定 `random_state=42` 與分層切分，150 筆資料分為 120 筆訓練及 30 筆測試。MLflow experiment 名稱為 `iris`，Run 名稱為 `iris-random-forest`；參數包含 `n_estimators`、`random_state`、`n_jobs` 與 `test_size`。訓練後同時輸出供服務載入的模型及可查核的 JSON 紀錄。
+
+FastAPI 的 `POST /predict` 接收 `instances` 二維陣列，每筆必須是 4 個有限數值，每次接受 1–1024 筆資料，回傳對應的分類編號。`GET /healthz` 供 Kubernetes 探針檢查服務；模型在服務啟動階段載入，若檔案缺失則啟動失敗。容器以非 root 使用者執行，執行階段只安裝推論所需套件。
+
+## 系統運作流程（Workflow）
+
+```mermaid
+flowchart TD
+    A[scikit-learn Iris 資料集] --> B[train.py：切分資料與訓練 Random Forest]
+    B --> C[MLflow：params、accuracy、model]
+    B --> D[model.pkl]
+    D --> E[Docker image：FastAPI + 模型]
+    E --> F[kind load docker-image]
+    F --> G[Kubernetes Deployment：iris-api]
+    H[curl / Python 並行負載] --> I[port-forward：localhost 8080]
+    I --> J[經 Service 選取 Pod 並轉送請求]
+    J --> G
+    G --> K[metrics-server 收集 Pod CPU]
+    K --> L[HPA：CPU 50%，1–5 replicas]
+    L -->|調整副本數| G
+    C --> M[Playwright 截取 MLflow Run]
+    L --> N[kubectl 輸出與 HPA 截圖]
+    M --> O[screenshots 與 evidence 提交 GitHub]
+    N --> O
+```
+
+模型只在訓練步驟產生，推論容器不重新訓練；MLflow 負責實驗紀錄，FastAPI 負責載入已訓練模型並處理預測。HPA 依 metrics-server 的 CPU 指標調整 Deployment 副本數。本作業的 port-forward 會選取單一 Pod，適合展示負載引發擴展，不作為多副本負載平衡的驗證。
+
+## 各檔案用途
+
+| 檔案 | 描述 |
+| --- | --- |
+| [train.py](train.py) | Iris 模型訓練入口；設定切分與模型參數、記錄 MLflow 實驗、輸出 `model.pkl` 及 `evidence/training.json`。可透過 CLI 調整樹數、seed、tracking URI 與模型輸出路徑。 |
+| [app.py](app.py) | FastAPI 推論服務；啟動時由 `MODEL_PATH` 或預設 `model.pkl` 載入模型，驗證輸入並提供 `/predict`、`/healthz`。 |
+| [Dockerfile](Dockerfile) | 以 `python:3.12-slim` 建立推論映像，安裝 runtime 套件、複製程式與模型，以 Uvicorn 監聽 8080。 |
+| [requirements.txt](requirements.txt) | 固定 FastAPI、Uvicorn、scikit-learn、joblib 版本，供本機與容器推論使用。 |
+| [requirements-dev.txt](requirements-dev.txt) | 引入 runtime 套件，另安裝 MLflow、相容的 SQLAlchemy、pytest 和 httpx，供訓練與測試使用。 |
+| [deployment.yaml](deployment.yaml) | 定義 `iris-api` Deployment 和 ClusterIP Service，包含映像、標籤、資源 requests / limits、健康探針及 port 對應。 |
+| [hpa.yaml](hpa.yaml) | 使用 `autoscaling/v2` 定義 HPA，目標為 `iris-api` Deployment，CPU 平均使用率 50%，最少 1、最多 5 個副本。 |
+| [scripts/deploy.sh](scripts/deploy.sh) | 建立 kind 叢集、安裝與設定 metrics-server、建置並載入映像、套用 YAML，等待部署完成；任一步驟失敗即停止。 |
+| [scripts/load.py](scripts/load.py) | 使用多執行緒持續發送 HTTP 預測請求並驗證回應，輸出成功／錯誤次數；可調整 URL、秒數與並行數，若無成功請求則回傳失敗。 |
+| [scripts/capture.py](scripts/capture.py) | 每 10 秒查詢 HPA 與 Deployment，最多等待 240 秒；記錄狀態歷程和 kubectl 輸出，以 Playwright 截取 MLflow UI 及原始 HPA 輸出的瀏覽器畫面。未觀察到至少 2 個 current replicas 和 2 個 ready replicas 時回傳失敗。 |
+| [tests/test_app.py](tests/test_app.py) | 6 項 API 測試：健康檢查與正常預測，以及空陣列、欄位不足、欄位過多、非有限數值、超過批次上限的拒絕行為；使用暫存測試模型。 |
+| [.github/workflows/lab.yml](.github/workflows/lab.yml) | GitHub Actions 自動驗證流程，串接套件安裝、測試、訓練、部署、負載、截圖、artifact 上傳及證據提交。 |
+| [.dockerignore](.dockerignore) | 僅允許 Dockerfile、runtime requirements、API 程式與模型進入 build context，排除不需要的檔案。 |
+| [.gitignore](.gitignore) | 排除虛擬環境、Python 快取、模型、MLflow 資料庫／artifact 目錄與暫存日誌。 |
+| [screenshots/mlflow-run.png](screenshots/mlflow-run.png) | 實際 MLflow Run 截圖，顯示完成狀態、參數、模型與 accuracy。 |
+| [screenshots/hpa-scaling.png](screenshots/hpa-scaling.png) | 實際 kubectl 輸出的瀏覽器截圖，顯示 HPA、Pod 狀態與自動擴展事件。 |
+| [screenshots/README.md](screenshots/README.md) | 說明兩張截圖的來源、內容與成功執行連結。 |
+| [evidence/training.json](evidence/training.json) | 訓練 Run ID、accuracy、模型參數、訓練及測試資料筆數。 |
+| [evidence/load.json](evidence/load.json) | 負載測試成功與錯誤請求總數。 |
+| [evidence/hpa-history.json](evidence/hpa-history.json) | 帶時間戳記的 HPA 與 Deployment 狀態觀測序列。 |
+| [evidence/hpa.txt](evidence/hpa.txt) | `kubectl get hpa`、`get pods`、`describe hpa` 的原始查詢輸出。 |
+| [README.md](README.md) | 作業要求對照、實作內容、流程、檔案說明、重現步驟及驗證結果。 |
+
+`model.pkl`、`mlflow.db` 與 MLflow artifact 目錄是執行時產物，不納入 Git。先執行 `python train.py` 才能建立含模型的 Docker 映像；MLflow UI 與截圖程式需在同一專案工作目錄使用該次訓練的資料庫。
+
+## GitHub Actions Workflow
+
+流程名稱為 **Lab 1 execution and evidence**，設定於 [.github/workflows/lab.yml](.github/workflows/lab.yml)。推送 `main` 或手動 `workflow_dispatch` 時執行；若推送只變動 `screenshots/**`、`evidence/**`，則不觸發。執行環境為 Ubuntu 24.04、Python 3.12，整個 job 最長 20 分鐘。
+
+| 順序／Step | 工作內容 | 產出或完成條件 |
+| --- | --- | --- |
+| 1. Checkout / Setup Python | 取得 Repository 原始碼，設定 Python 3.12 與 pip cache | 可重建的 Python 執行環境 |
+| 2. Install dependencies | 安裝 `requirements-dev.txt`、Playwright 1.51.0、Chromium 與瀏覽器系統依賴 | 訓練、API 測試與截圖套件可用 |
+| 3. Test and train | 先執行 `python -m pytest -q`，通過後執行 `python train.py` | 6 項測試通過，產生模型、MLflow Run 與訓練紀錄 |
+| 4. Install kind | 安裝 kind v0.27.0 | 可建立容器化 Kubernetes 叢集 |
+| 5. Deploy | 呼叫 `scripts/deploy.sh`，建立 Kubernetes 1.32.2 叢集、metrics-server、映像與應用資源 | metrics-server 與 iris-api rollout 成功 |
+| 6. Load test and capture real evidence | 背景啟動 MLflow UI 和 port-forward，等待健康檢查，發送 curl 請求，再執行 300 秒負載與截圖程式 | 驗證 HPA 擴展、產生兩張 PNG 和原始紀錄，等待負載完成 |
+| 7. Save artifacts for diagnosis | 以 `if: always()` 收集 `screenshots/`、`evidence/` | 上傳 `lab1-evidence` artifact；失敗執行的產物僅供診斷 |
+| 8. Commit verified evidence | 前置步驟成功才執行 `git add`、commit 和 push | 截圖與紀錄寫回 Repository，供作業檢閱 |
+
+Workflow 使用 `contents: write` 權限寫入證據，提交訊息包含 `[skip ci]`，避免證據提交再啟動同一流程。任一測試、訓練、部署或擴展驗證失敗，都不會執行最後的成功證據提交；可由 Actions 日誌與 artifact 查明原因。GitHub runner 上的叢集是該次驗證使用的暫時環境，工作結束後不提供常駐預測服務。
+
 ## 繳交內容與驗證狀態
 
 | 要求 | 檔案 |
