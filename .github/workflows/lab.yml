@@ -12,6 +12,15 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Clear previous generated evidence
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for folder, pattern in [('screenshots', '*.png'), ('evidence', '*')]:
+              for path in Path(folder).glob(pattern):
+                  if path.is_file():
+                      path.unlink()
+          PY
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -29,21 +38,37 @@ jobs:
           curl -fLo kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
           chmod +x kind
           sudo mv kind /usr/local/bin/kind
+      - name: Install hey
+        run: |
+          go install github.com/rakyll/hey@v0.1.4
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Deploy
         run: bash scripts/deploy.sh
       - name: Load test and capture real evidence
         run: |
           mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1 > /tmp/mlflow.log 2>&1 &
           kubectl port-forward svc/iris-api 8080:80 > /tmp/forward.log 2>&1 &
+          READY=false
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:5000/health; then break; fi
+            if curl -fsS http://127.0.0.1:8080/healthz && curl -fsS http://127.0.0.1:5000/health; then READY=true; break; fi
             sleep 2
           done
+          if [ "$READY" != true ]; then
+            cat /tmp/mlflow.log /tmp/forward.log
+            exit 1
+          fi
           curl -f http://127.0.0.1:8080/predict -H 'Content-Type: application/json' -d '{"instances":[[5.1,3.5,1.4,0.2]]}'
           python scripts/load.py --seconds 300 > evidence/load.json &
           LOAD_PID=$!
+          hey -z 60s -c 50 -m POST -T application/json -d '{"instances":[[5.1,3.5,1.4,0.2]]}' http://localhost:8080/predict > evidence/hey.txt
           python scripts/capture.py
           wait "$LOAD_PID"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result = json.loads(Path('evidence/load.json').read_text())
+          assert result['success'] > 0 and result['errors'] == 0, result
+          PY
       - name: Save artifacts for diagnosis
         if: always()
         uses: actions/upload-artifact@v4

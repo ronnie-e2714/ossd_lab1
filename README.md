@@ -30,7 +30,7 @@ flowchart TD
     D --> E[Docker image：FastAPI + 模型]
     E --> F[kind load docker-image]
     F --> G[Kubernetes Deployment：iris-api]
-    H[curl / Python 並行負載] --> I[port-forward：localhost 8080]
+    H[curl / hey / Python 並行負載] --> I[port-forward：localhost 8080]
     I --> J[經 Service 選取 Pod 並轉送請求]
     J --> G
     G --> K[metrics-server 收集 Pod CPU]
@@ -59,6 +59,7 @@ flowchart TD
 | [scripts/load.py](scripts/load.py) | 使用多執行緒持續發送 HTTP 預測請求並驗證回應，輸出成功／錯誤次數；可調整 URL、秒數與並行數，若無成功請求則回傳失敗。 |
 | [scripts/capture.py](scripts/capture.py) | 每 10 秒查詢 HPA 與 Deployment，最多等待 240 秒；記錄狀態歷程和 kubectl 輸出，以 Playwright 截取 MLflow UI 及原始 HPA 輸出的瀏覽器畫面。未觀察到至少 2 個 current replicas 和 2 個 ready replicas 時回傳失敗。 |
 | [tests/test_app.py](tests/test_app.py) | 6 項 API 測試：健康檢查與正常預測，以及空陣列、欄位不足、欄位過多、非有限數值、超過批次上限的拒絕行為；使用暫存測試模型。 |
+| [tests/test_training.py](tests/test_training.py) | 執行真正的訓練入口，確認 MLflow Run 完成、參數與 accuracy 正確，重新載入 MLflow artifact 與本機模型，比對預測及測試集分數。 |
 | [.github/workflows/lab.yml](.github/workflows/lab.yml) | GitHub Actions 自動驗證流程，串接套件安裝、測試、訓練、部署、負載、截圖、artifact 上傳及證據提交。 |
 | [.dockerignore](.dockerignore) | 僅允許 Dockerfile、runtime requirements、API 程式與模型進入 build context，排除不需要的檔案。 |
 | [.gitignore](.gitignore) | 排除虛擬環境、Python 快取、模型、MLflow 資料庫／artifact 目錄與暫存日誌。 |
@@ -66,6 +67,7 @@ flowchart TD
 | [screenshots/hpa-scaling.png](screenshots/hpa-scaling.png) | 實際 kubectl 輸出的瀏覽器截圖，顯示 HPA、Pod 狀態與自動擴展事件。 |
 | [screenshots/README.md](screenshots/README.md) | 說明兩張截圖的來源、內容與成功執行連結。 |
 | [evidence/training.json](evidence/training.json) | 訓練 Run ID、accuracy、模型參數、訓練及測試資料筆數。 |
+| [evidence/hey.txt](evidence/hey.txt) | 講義指定的 hey 負載測試原始輸出（60 秒、50 並行），由重跑流程產生。 |
 | [evidence/load.json](evidence/load.json) | 負載測試成功與錯誤請求總數。 |
 | [evidence/hpa-history.json](evidence/hpa-history.json) | 帶時間戳記的 HPA 與 Deployment 狀態觀測序列。 |
 | [evidence/hpa.txt](evidence/hpa.txt) | `kubectl get hpa`、`get pods`、`describe hpa` 的原始查詢輸出。 |
@@ -79,16 +81,16 @@ flowchart TD
 
 | 順序／Step | 工作內容 | 產出或完成條件 |
 | --- | --- | --- |
-| 1. Checkout / Setup Python | 取得 Repository 原始碼，設定 Python 3.12 與 pip cache | 可重建的 Python 執行環境 |
+| 1. Checkout / Setup Python | 取得 Repository 原始碼，清除舊 PNG 與 evidence 檔案，設定 Python 3.12 與 pip cache | 可重建的 Python 執行環境 |
 | 2. Install dependencies | 安裝 `requirements-dev.txt`、Playwright 1.51.0、Chromium 與瀏覽器系統依賴 | 訓練、API 測試與截圖套件可用 |
-| 3. Test and train | 先執行 `python -m pytest -q`，通過後執行 `python train.py` | 6 項測試通過，產生模型、MLflow Run 與訓練紀錄 |
-| 4. Install kind | 安裝 kind v0.27.0 | 可建立容器化 Kubernetes 叢集 |
+| 3. Test and train | 先執行 `python -m pytest -q`，通過後執行 `python train.py` | 7 項測試（6 項 API、1 項訓練整合）通過，產生模型、MLflow Run 與訓練紀錄 |
+| 4. Install kind / Install hey | 安裝 kind v0.27.0 與 hey v0.1.4 | 可建立容器化 Kubernetes 叢集 |
 | 5. Deploy | 呼叫 `scripts/deploy.sh`，建立 Kubernetes 1.32.2 叢集、metrics-server、映像與應用資源 | metrics-server 與 iris-api rollout 成功 |
-| 6. Load test and capture real evidence | 背景啟動 MLflow UI 和 port-forward，等待健康檢查，發送 curl 請求，再執行 300 秒負載與截圖程式 | 驗證 HPA 擴展、產生兩張 PNG 和原始紀錄，等待負載完成 |
+| 6. Load test and capture real evidence | 背景啟動 MLflow UI 和 port-forward，等待健康檢查，發送 curl 請求，再執行 300 秒 Python 負載，期間另跑 hey 60 秒／50 並行負載，接著執行截圖程式 | 健康檢查逾時即失敗；驗證 HPA 擴展、產生兩張 PNG 和紀錄，等待 Python 負載完成並確認零錯誤 |
 | 7. Save artifacts for diagnosis | 以 `if: always()` 收集 `screenshots/`、`evidence/` | 上傳 `lab1-evidence` artifact；失敗執行的產物僅供診斷 |
 | 8. Commit verified evidence | 前置步驟成功才執行 `git add`、commit 和 push | 截圖與紀錄寫回 Repository，供作業檢閱 |
 
-Workflow 使用 `contents: write` 權限寫入證據，提交訊息包含 `[skip ci]`，避免證據提交再啟動同一流程。任一測試、訓練、部署或擴展驗證失敗，都不會執行最後的成功證據提交；可由 Actions 日誌與 artifact 查明原因。GitHub runner 上的叢集是該次驗證使用的暫時環境，工作結束後不提供常駐預測服務。
+Workflow 使用 `contents: write` 權限寫入證據，提交訊息包含 `[skip ci]`，避免證據提交再啟動同一流程。每次開始先清除舊證據，避免失敗執行的 artifact 混入上次結果。任一測試、訓練、部署或擴展驗證失敗，都不會執行最後的成功證據提交；可由 Actions 日誌與 artifact 查明原因。GitHub runner 上的叢集是該次驗證使用的暫時環境，工作結束後不提供常駐預測服務。
 
 ## 繳交內容與驗證狀態
 
@@ -122,7 +124,7 @@ HPA 圖片是實際 `kubectl` 輸出在瀏覽器中的截圖，保留原始時�
 
 ## 執行環境
 
-Python 3.12、Docker Engine（Windows 可用 Docker Desktop Linux containers）、kind、kubectl。安裝套件需能連線 PyPI；建立叢集需能下載容器映像。`scripts/deploy.sh` 在 Bash / WSL / Linux 執行。Windows PowerShell 也可逐行執行下列 Docker 與 kubectl 指令。
+Python 3.12、Docker Engine（Windows 可用 Docker Desktop Linux containers）、kind、kubectl。安裝套件需能連線 PyPI；建立叢集需能下載容器映像。`scripts/deploy.sh` 在 Bash / WSL / Linux 執行。以下完整重現指令以 Bash / WSL / Linux 為準；Windows PowerShell 可執行 Python、Docker 與 kubectl，但虛擬環境啟用、curl JSON 引號和背景執行需使用對應語法。
 
 ```bash
 python -m venv .venv
@@ -140,6 +142,11 @@ mlflow ui --backend-store-uri sqlite:///mlflow.db --host 127.0.0.1
 
 ```bash
 uvicorn app:app --host 127.0.0.1 --port 8080
+```
+
+保留服務終端，另外開一個終端發送請求（以下 curl 語法使用 Bash）：
+
+```bash
 curl -X POST http://127.0.0.1:8080/predict -H 'Content-Type: application/json' -d '{"instances":[[5.1,3.5,1.4,0.2]]}'
 ```
 
