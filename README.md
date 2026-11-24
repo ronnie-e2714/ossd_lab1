@@ -14,10 +14,25 @@ Repository：https://github.com/ronnie-e2714/ossd_lab1
 | Kubernetes Deployment + Service | `deployment.yaml` |
 | CPU 50%、1–5 replicas 的 HPA | `hpa.yaml` |
 | 自動部署、負載、蒐證 | `scripts/`, `.github/workflows/lab.yml` |
-| MLflow Run 截圖 | 成功執行後產生 `screenshots/mlflow-run.png` |
-| HPA Scaling 截圖 | 成功執行後產生 `screenshots/hpa-scaling.png` |
+| MLflow Run 截圖 | 已提交 `screenshots/mlflow-run.png` |
+| HPA Scaling 截圖 | 已提交 `screenshots/hpa-scaling.png` |
 
-**截圖存在且 Actions 成功後，才代表完整驗證完成。** 初次上傳時未附虛構執行結果；GitHub Actions 會在真正訓練與 HPA 至少兩個 ready replicas 後，自動提交證據。失敗時請看 Actions 日誌與 `lab1-evidence` artifact，失敗執行的產物僅供診斷。HPA 圖片是原始 `kubectl` 輸出的瀏覽器截圖，保留時間、replicas、CPU 指標與事件；原始文字另存 `evidence/hpa.txt`。
+**已於 2026-11-24 完成實際驗證。** [GitHub Actions 成功紀錄](https://github.com/ronnie-e2714/ossd_lab1/actions/runs/45396505962)：套件安裝、6 項 API 測試、MLflow 訓練、Docker 建置、kind 部署、HPA 負載測試和截圖提交均成功。
+
+- MLflow Run：`bcb7cceb51914876823874483fcc9fe2`，accuracy **0.90**，120 筆訓練／30 筆測試，模型 artifact 已記錄。
+- 300 秒、50 並行負載：**18,941 次成功，0 次錯誤**，見 [原始結果](evidence/load.json)。
+- HPA：初始 1 個副本，事件記錄擴至 4、再要求擴至 5；截圖當下 4 個 Pod ready，第 5 個正在啟動。CPU 指標 500%／目標 50%，最大副本數 5。見 [原始輸出](evidence/hpa.txt) 和 [觀測歷程](evidence/hpa-history.json)。
+- 執行環境為 GitHub-hosted Ubuntu 24.04 / Python 3.12 / kind Kubernetes 1.32.2，解決本機受限環境無法連線 PyPI 與缺少 Docker 的問題。已固定 SQLAlchemy 2.0.40，修正 MLflow 2.22.2 與新版 SQLAlchemy 的相容性問題。
+
+HPA 圖片是實際 `kubectl` 輸出在瀏覽器中的截圖，保留原始時間、replicas、CPU 指標及事件，沒有改寫數值。初期 metrics-server 尚未收集資料的 warning 也如實保留，後續 `ScalingActive=True` 與 `SuccessfulRescale` 證實自動擴展成功。
+
+### MLflow Run
+
+![實際 MLflow Run、參數與 accuracy](screenshots/mlflow-run.png)
+
+### HPA Scaling
+
+![實際 HPA 擴展輸出](screenshots/hpa-scaling.png)
 
 ## 執行環境
 
