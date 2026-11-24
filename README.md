@@ -1,7 +1,5 @@
 # Lab 1 — Your First Model Service on Kubernetes
 
-Repository：https://github.com/ronnie-e2714/ossd_lab1
-
 ## 專案目標與實作內容
 
 本專案將 Iris 分類模型從本機訓練轉為可在 Kubernetes 執行的 HTTP 服務，並以實際負載驗證自動擴展。
