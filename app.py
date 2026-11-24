@@ -23,7 +23,7 @@ class PredictionRequest(BaseModel):
 
 
 @app.get("/healthz")
-def healthz():
+async def healthz():
     return {"ok": True}
 
 

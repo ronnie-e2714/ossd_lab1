@@ -58,9 +58,17 @@ jobs:
             exit 1
           fi
           curl -f http://127.0.0.1:8080/predict -H 'Content-Type: application/json' -d '{"instances":[[5.1,3.5,1.4,0.2]]}'
+          hey -z 60s -c 50 -m POST -T application/json -d '{"instances":[[5.1,3.5,1.4,0.2]]}' http://127.0.0.1:8080/predict > evidence/hey.txt
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          report = Path('evidence/hey.txt').read_text()
+          statuses = re.findall(r'\[(\d{3})\]\s+(\d+) responses', report)
+          assert statuses and all(code == '200' for code, count in statuses), report
+          assert 'Error distribution:' not in report, report
+          PY
           python scripts/load.py --seconds 300 > evidence/load.json &
           LOAD_PID=$!
-          hey -z 60s -c 50 -m POST -T application/json -d '{"instances":[[5.1,3.5,1.4,0.2]]}' http://localhost:8080/predict > evidence/hey.txt
           python scripts/capture.py
           wait "$LOAD_PID"
           python - <<'PY'
@@ -69,6 +77,13 @@ jobs:
           result = json.loads(Path('evidence/load.json').read_text())
           assert result['success'] > 0 and result['errors'] == 0, result
           PY
+      - name: Print runtime diagnostics
+        if: always()
+        run: |
+          for file in evidence/hpa.txt evidence/load.json evidence/hey.txt /tmp/forward.log; do
+            if [ -f "$file" ]; then cat "$file"; fi
+          done
+          kubectl describe pods -l app=iris-api || true
       - name: Save artifacts for diagnosis
         if: always()
         uses: actions/upload-artifact@v4

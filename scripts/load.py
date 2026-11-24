@@ -1,4 +1,4 @@
-"""Concurrent real inference requests; exits nonzero if all requests fail."""
+"""Concurrent real inference requests; exits nonzero on any failed request."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -12,6 +12,8 @@ def main():
     p.add_argument("--seconds", type=int, default=180)
     p.add_argument("--concurrency", type=int, default=50)
     args = p.parse_args()
+    if args.seconds <= 0 or args.concurrency <= 0:
+        p.error("--seconds and --concurrency must be positive")
     payload = json.dumps({"instances": [[5.1, 3.5, 1.4, 0.2]]}).encode()
     deadline = time.monotonic() + args.seconds
 
@@ -27,14 +29,15 @@ def main():
                 success += 1
             except Exception:
                 errors += 1
+                time.sleep(0.1)
         return success, errors
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         counts = list(pool.map(worker, range(args.concurrency)))
     success, errors = map(sum, zip(*counts))
     print(json.dumps(dict(success=success, errors=errors)))
-    if not success:
-        raise SystemExit("No successful predictions")
+    if not success or errors:
+        raise SystemExit("Load test requires successful predictions and zero errors")
 
 
 if __name__ == "__main__":

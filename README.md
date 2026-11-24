@@ -18,7 +18,7 @@ Repository：https://github.com/ronnie-e2714/ossd_lab1
 
 訓練使用固定 `random_state=42` 與分層切分，150 筆資料分為 120 筆訓練及 30 筆測試。MLflow experiment 名稱為 `iris`，Run 名稱為 `iris-random-forest`；參數包含 `n_estimators`、`random_state`、`n_jobs` 與 `test_size`。訓練後同時輸出供服務載入的模型及可查核的 JSON 紀錄。
 
-FastAPI 的 `POST /predict` 接收 `instances` 二維陣列，每筆必須是 4 個有限數值，每次接受 1–1024 筆資料，回傳對應的分類編號。`GET /healthz` 供 Kubernetes 探針檢查服務；模型在服務啟動階段載入，若檔案缺失則啟動失敗。容器以非 root 使用者執行，執行階段只安裝推論所需套件。
+FastAPI 的 `POST /predict` 接收 `instances` 二維陣列，每筆必須是 4 個有限數值，每次接受 1–1024 筆資料，回傳對應的分類編號。`GET /healthz` 使用非阻塞的 async handler，供 Kubernetes 探針檢查服務，避免與同步推論共用執行緒池；readiness 與 liveness 的逾時皆為 5 秒；模型在服務啟動階段載入，若檔案缺失則啟動失敗。容器以非 root 使用者執行，執行階段只安裝推論所需套件。
 
 ## 系統運作流程（Workflow）
 
@@ -56,7 +56,7 @@ flowchart TD
 | [deployment.yaml](deployment.yaml) | 定義 `iris-api` Deployment 和 ClusterIP Service，包含映像、標籤、資源 requests / limits、健康探針及 port 對應。 |
 | [hpa.yaml](hpa.yaml) | 使用 `autoscaling/v2` 定義 HPA，目標為 `iris-api` Deployment，CPU 平均使用率 50%，最少 1、最多 5 個副本。 |
 | [scripts/deploy.sh](scripts/deploy.sh) | 建立 kind 叢集、安裝與設定 metrics-server、建置並載入映像、套用 YAML，等待部署完成；任一步驟失敗即停止。 |
-| [scripts/load.py](scripts/load.py) | 使用多執行緒持續發送 HTTP 預測請求並驗證回應，輸出成功／錯誤次數；可調整 URL、秒數與並行數，若無成功請求則回傳失敗。 |
+| [scripts/load.py](scripts/load.py) | 使用多執行緒持續發送 HTTP 預測請求並驗證回應，輸出成功／錯誤次數；可調整 URL、秒數與並行數，若無成功請求或發生任何錯誤則回傳失敗；限制秒數及並行數為正數，連線失敗時稍作退避。 |
 | [scripts/capture.py](scripts/capture.py) | 每 10 秒查詢 HPA 與 Deployment，最多等待 240 秒；記錄狀態歷程和 kubectl 輸出，以 Playwright 截取 MLflow UI 及原始 HPA 輸出的瀏覽器畫面。未觀察到至少 2 個 current replicas 和 2 個 ready replicas 時回傳失敗。 |
 | [tests/test_app.py](tests/test_app.py) | 6 項 API 測試：健康檢查與正常預測，以及空陣列、欄位不足、欄位過多、非有限數值、超過批次上限的拒絕行為；使用暫存測試模型。 |
 | [tests/test_training.py](tests/test_training.py) | 執行真正的訓練入口，確認 MLflow Run 完成、參數與 accuracy 正確，重新載入 MLflow artifact 與本機模型，比對預測及測試集分數。 |
@@ -86,8 +86,8 @@ flowchart TD
 | 3. Test and train | 先執行 `python -m pytest -q`，通過後執行 `python train.py` | 7 項測試（6 項 API、1 項訓練整合）通過，產生模型、MLflow Run 與訓練紀錄 |
 | 4. Install kind / Install hey | 安裝 kind v0.27.0 與 hey v0.1.4 | 可建立容器化 Kubernetes 叢集 |
 | 5. Deploy | 呼叫 `scripts/deploy.sh`，建立 Kubernetes 1.32.2 叢集、metrics-server、映像與應用資源 | metrics-server 與 iris-api rollout 成功 |
-| 6. Load test and capture real evidence | 背景啟動 MLflow UI 和 port-forward，等待健康檢查，發送 curl 請求，再執行 300 秒 Python 負載，期間另跑 hey 60 秒／50 並行負載，接著執行截圖程式 | 健康檢查逾時即失敗；驗證 HPA 擴展、產生兩張 PNG 和紀錄，等待 Python 負載完成並確認零錯誤 |
-| 7. Save artifacts for diagnosis | 以 `if: always()` 收集 `screenshots/`、`evidence/` | 上傳 `lab1-evidence` artifact；失敗執行的產物僅供診斷 |
+| 6. Load test and capture real evidence | 背景啟動 MLflow UI 和 port-forward，等待健康檢查，發送 curl 請求，先跑 hey 60 秒／50 並行負載，確認全為 HTTP 200 且無連線錯誤後，再啟動 300 秒 Python 負載與截圖程式 | 健康檢查逾時即失敗；驗證 HPA 擴展、產生兩張 PNG 和紀錄，等待 Python 負載完成並確認零錯誤 |
+| 7. Print runtime diagnostics / Save artifacts for diagnosis | 以 `if: always()` 印出負載／HPA／Pod 診斷，收集 `screenshots/`、`evidence/` | 上傳 `lab1-evidence` artifact；失敗執行的產物僅供診斷 |
 | 8. Commit verified evidence | 前置步驟成功才執行 `git add`、commit 和 push | 截圖與紀錄寫回 Repository，供作業檢閱 |
 
 Workflow 使用 `contents: write` 權限寫入證據，提交訊息包含 `[skip ci]`，避免證據提交再啟動同一流程。每次開始先清除舊證據，避免失敗執行的 artifact 混入上次結果。任一測試、訓練、部署或擴展驗證失敗，都不會執行最後的成功證據提交；可由 Actions 日誌與 artifact 查明原因。GitHub runner 上的叢集是該次驗證使用的暫時環境，工作結束後不提供常駐預測服務。
