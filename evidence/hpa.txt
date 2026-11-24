@@ -1,42 +1,40 @@
-2026-11-24T12:49:10.421513+00:00
+2026-11-24T13:26:10.217046+00:00
 
 $ kubectl get hpa iris-api
 NAME       REFERENCE             TARGETS         MINPODS   MAXPODS   REPLICAS   AGE
-iris-api   Deployment/iris-api   cpu: 500%/50%   1         5         4          63s
+iris-api   Deployment/iris-api   cpu: 251%/50%   1         5         5          73s
 
 $ kubectl get pods -l app=iris-api
-NAME                       READY   STATUS    RESTARTS   AGE
-iris-api-bdf8bc9d5-98klv   1/1     Running   0          18s
-iris-api-bdf8bc9d5-k26ps   1/1     Running   0          63s
-iris-api-bdf8bc9d5-rzdpv   1/1     Running   0          18s
-iris-api-bdf8bc9d5-xl9g2   0/1     Running   0          3s
-iris-api-bdf8bc9d5-xzfft   1/1     Running   0          18s
+NAME                        READY   STATUS    RESTARTS   AGE
+iris-api-66b6c77dd9-g4fl8   1/1     Running   0          43s
+iris-api-66b6c77dd9-g7zj5   1/1     Running   0          43s
+iris-api-66b6c77dd9-gjfd8   1/1     Running   0          43s
+iris-api-66b6c77dd9-nmvsr   1/1     Running   0          28s
+iris-api-66b6c77dd9-tnfxt   1/1     Running   0          73s
 
 $ kubectl describe hpa iris-api
 Name:                                                  iris-api
 Namespace:                                             default
 Labels:                                                <none>
 Annotations:                                           <none>
-CreationTimestamp:                                     Tue, 24 Nov 2026 12:48:07 +0000
+CreationTimestamp:                                     Tue, 24 Nov 2026 13:24:57 +0000
 Reference:                                             Deployment/iris-api
 Metrics:                                               ( current / target )
-  resource cpu on pods  (as a percentage of request):  500% (500m) / 50%
+  resource cpu on pods  (as a percentage of request):  251% (251m) / 50%
 Min replicas:                                          1
 Max replicas:                                          5
-Deployment pods:                                       4 current / 5 desired
+Deployment pods:                                       5 current / 5 desired
 Conditions:
   Type            Status  Reason            Message
   ----            ------  ------            -------
-  AbleToScale     True    SucceededRescale  the HPA controller was able to update the target scale to 5
+  AbleToScale     True    ReadyForNewScale  recommended size matches current size
   ScalingActive   True    ValidMetricFound  the HPA was able to successfully calculate a replica count from cpu resource utilization (percentage of request)
   ScalingLimited  True    TooManyReplicas   the desired replica count is more than the maximum replica count
 Events:
   Type     Reason                        Age   From                       Message
   ----     ------                        ----  ----                       -------
-  Warning  FailedGetResourceMetric       48s   horizontal-pod-autoscaler  failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
-  Warning  FailedComputeMetricsReplicas  48s   horizontal-pod-autoscaler  invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
-  Warning  FailedGetResourceMetric       33s   horizontal-pod-autoscaler  failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
-  Warning  FailedComputeMetricsReplicas  33s   horizontal-pod-autoscaler  invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: did not receive metrics for targeted pods (pods might be unready)
-  Normal   SuccessfulRescale             18s   horizontal-pod-autoscaler  New size: 4; reason: cpu resource utilization (percentage of request) above target
-  Normal   SuccessfulRescale             3s    horizontal-pod-autoscaler  New size: 5; reason: cpu resource utilization (percentage of request) above target
+  Warning  FailedGetResourceMetric       58s   horizontal-pod-autoscaler  failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+  Warning  FailedComputeMetricsReplicas  58s   horizontal-pod-autoscaler  invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: unable to get metrics for resource cpu: no metrics returned from resource metrics API
+  Normal   SuccessfulRescale             43s   horizontal-pod-autoscaler  New size: 4; reason: cpu resource utilization (percentage of request) above target
+  Normal   SuccessfulRescale             28s   horizontal-pod-autoscaler  New size: 5; reason: cpu resource utilization (percentage of request) above target
 
