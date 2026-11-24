@@ -1,0 +1,19 @@
+name: Inspect failed lab evidence
+on:
+  push:
+    paths: ['.github/workflows/diagnose.yml']
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ronnie-e2714/ossd_lab1
+          run-id: 45400508292
+          name: lab1-evidence
+          path: diagnostic
+      - run: cat diagnostic/evidence/hpa.txt diagnostic/evidence/load.json diagnostic/evidence/hey.txt
