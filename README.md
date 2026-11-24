@@ -67,7 +67,7 @@ flowchart TD
 | [screenshots/hpa-scaling.png](screenshots/hpa-scaling.png) | 實際 kubectl 輸出的瀏覽器截圖，顯示 HPA、Pod 狀態與自動擴展事件。 |
 | [screenshots/README.md](screenshots/README.md) | 說明兩張截圖的來源、內容與成功執行連結。 |
 | [evidence/training.json](evidence/training.json) | 訓練 Run ID、accuracy、模型參數、訓練及測試資料筆數。 |
-| [evidence/hey.txt](evidence/hey.txt) | 講義指定的 hey 負載測試原始輸出（60 秒、50 並行），由重跑流程產生。 |
+| [evidence/hey.txt](evidence/hey.txt) | 講義指定的 hey 負載測試原始輸出（60 秒、50 並行）。 |
 | [evidence/load.json](evidence/load.json) | 負載測試成功與錯誤請求總數。 |
 | [evidence/hpa-history.json](evidence/hpa-history.json) | 帶時間戳記的 HPA 與 Deployment 狀態觀測序列。 |
 | [evidence/hpa.txt](evidence/hpa.txt) | `kubectl get hpa`、`get pods`、`describe hpa` 的原始查詢輸出。 |
@@ -105,11 +105,12 @@ Workflow 使用 `contents: write` 權限寫入證據，提交訊息包含 `[skip
 | MLflow Run 截圖 | 已提交 `screenshots/mlflow-run.png` |
 | HPA Scaling 截圖 | 已提交 `screenshots/hpa-scaling.png` |
 
-**已於 2026-11-24 完成實際驗證。** [GitHub Actions 成功紀錄](https://github.com/ronnie-e2714/ossd_lab1/actions/runs/45396505962)：套件安裝、6 項 API 測試、MLflow 訓練、Docker 建置、kind 部署、HPA 負載測試和截圖提交均成功。
+**2026-11-24 的端到端驗證成功。** 6 項 API 測試、1 項模型重新載入測試、MLflow 訓練、Docker 建置、kind 部署、負載測試及截圖提交均通過。[GitHub Actions 執行紀錄](https://github.com/ronnie-e2714/ossd_lab1/actions/runs/45402584207)
 
-- MLflow Run：`bcb7cceb51914876823874483fcc9fe2`，accuracy **0.90**，120 筆訓練／30 筆測試，模型 artifact 已記錄。
-- 300 秒、50 並行負載：**18,941 次成功，0 次錯誤**，見 [原始結果](evidence/load.json)。
-- HPA：初始 1 個副本，事件記錄擴至 4、再要求擴至 5；截圖當下 4 個 Pod ready，第 5 個正在啟動。CPU 指標 500%／目標 50%，最大副本數 5。見 [原始輸出](evidence/hpa.txt) 和 [觀測歷程](evidence/hpa-history.json)。
+- MLflow Run：`9fd2ea3e749e4c2eb1059e80148be605`，accuracy **0.90**，120 筆訓練／30 筆測試，模型 artifact 已記錄。
+- 300 秒、50 並行負載：**24,624 次成功，0 次錯誤**，見 [原始結果](evidence/load.json)。
+- HPA 從 1 個副本擴展至 5 個，截圖顯示 5 個 Pod 全部 Ready、重啟次數為 0。CPU 使用率為 request 的 251%，目標為 50%。[原始輸出](evidence/hpa.txt) · [觀測歷程](evidence/hpa-history.json)
+- `hey` 以 50 並行執行 60 秒，5,188 次回應均為 HTTP 200。[原始結果](evidence/hey.txt)
 - 執行環境為 GitHub-hosted Ubuntu 24.04 / Python 3.12 / kind Kubernetes 1.32.2，解決本機受限環境無法連線 PyPI 與缺少 Docker 的問題。已固定 SQLAlchemy 2.0.40，修正 MLflow 2.22.2 與新版 SQLAlchemy 的相容性問題。
 
 HPA 圖片是實際 `kubectl` 輸出在瀏覽器中的截圖，保留原始時間、replicas、CPU 指標及事件，沒有改寫數值。初期 metrics-server 尚未收集資料的 warning 也如實保留，後續 `ScalingActive=True` 與 `SuccessfulRescale` 證實自動擴展成功。
